@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>흑점 특성 기반 태양플레어 등급 예측 — 데이터 파서</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --line: #d8d8d8;
+    --line-dark: #111;
+    --text: #111;
+    --muted: #666;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    background: #fff;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Malgun Gothic", sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap{ max-width: 860px; margin: 0 auto; padding: 48px 24px 80px; }
+
+  header{ margin-bottom: 32px; border-bottom: 2px solid var(--line-dark); padding-bottom: 20px; }
+  .eyebrow{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  h1{
+    font-size: 26px;
+    font-weight: 700;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  header p{
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0;
+    font-size: 14.5px;
+  }
+
+  .drop{
+    margin-top: 28px;
+    border: 1.5px dashed var(--line);
+    padding: 36px 24px;
+    text-align: center;
+    background: #fafafa;
+    transition: border-color .15s ease, background .15s ease;
+    cursor: pointer;
+  }
+  .drop.drag{
+    border-color: var(--line-dark);
+    background: #f2f2f2;
+  }
+  .drop .big{
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .drop .small{
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .drop input{ display:none; }
+
+  .status{
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #444;
+    white-space: pre-wrap;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fafafa;
+    border: 1px solid var(--line);
+    padding: 12px 14px;
+    display: none;
+  }
+  .status.show{ display:block; }
+  .status .ok{ color: #1a7a3c; }
+  .status .err{ color: #b3261e; }
+
+  .summary{
+    display: none;
+    margin-top: 24px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .summary.show{ display: grid; }
+  .stat{
+    background: #fff;
+    padding: 14px 16px;
+  }
+  .stat .n{
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .stat .l{
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .actions{
+    display: none;
+    margin-top: 22px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .actions.show{ display:flex; }
+  button.dl{
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--line-dark);
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.dl:hover{ background: #f2f2f2; }
+  button.dl.primary{
+    background: var(--line-dark);
+    color: #fff;
+  }
+  button.dl.primary:hover{ background: #333; }
+
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 12px;
+  }
+  th, td{
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  th{
+    color: var(--muted);
+    font-weight: 550;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    border-bottom: 1.5px solid var(--line-dark);
+  }
+  .tablewrap{
+    display: none;
+    margin-top: 28px;
+    border: 1px solid var(--line);
+    padding: 16px 18px 4px;
+    overflow-x: auto;
+  }
+  .tablewrap.show{ display:block; }
+  .tablewrap h2{
+    font-size: 13.5px;
+    margin: 0 0 4px;
+    font-weight: 650;
+  }
+  .tablewrap .sub{
+    color: var(--muted);
+    font-size: 11.5px;
+    margin-bottom: 4px;
+  }
+
+  footer{
+    margin-top: 44px;
+    color: var(--muted);
+    font-size: 11.5px;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">흑점 특성 기반 태양플레어 등급 예측 연구</div>
+    <h1>보고서 PDF → 데이터 파서</h1>
+  </header>
+
+  <div class="drop" id="drop">
+    <input type="file" id="fileInput" accept="application/pdf" multiple>
+    <div class="big">PDF 파일들을 여기로 끌어다 놓거나 클릭해서 선택</div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="summary" id="summary">
+    <div class="stat"><div class="n" id="statFiles">0</div><div class="l">처리된 파일</div></div>
+    <div class="stat"><div class="n" id="statSpots">0</div><div class="l">흑점 레코드</div></div>
+    <div class="stat"><div class="n" id="statWarn">0</div><div class="l">경보 레코드</div></div>
+    <div class="stat"><div class="n" id="statCme">0</div><div class="l">CME 레코드</div></div>
+  </div>
+
+  <div class="actions" id="actions">
+    <button class="dl primary" id="dlZip">전체 CSV 5종 ZIP으로 받기</button>
+    <button class="dl" id="dlSunspots">sunspots.csv</button>
+    <button class="dl" id="dlForecast">forecast.csv</button>
+    <button class="dl" id="dlWarnings">warnings.csv</button>
+    <button class="dl" id="dlCme">cme.csv</button>
+    <button class="dl" id="dlMeta">meta.csv</button>
+  </div>
+
+  <div class="tablewrap" id="previewWrap">
+    <h2>흑점(sunspots) 미리보기</h2>
+    <div class="sub">전체 데이터는 CSV로 받아서 확인하세요. 아래는 처음 15행만 표시합니다.</div>
+    <table id="previewTable"></table>
+  </div>
+
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+// ---------- 파싱 로직 (Python 버전과 동일한 정규식 규칙) ----------
+
+function cleanLines(text){
+  return text.split("\n")
+    .map(l => l.trim())
+    .filter(l => l.length > 0)
+    .filter(l => !/^-\s*\d+\s*-$/.test(l));
+}
+
+function parseReportDate(lines){
+  for(const line of lines){
+    const m = line.match(/\(\s*(\d{2})\s*\.\s*(\d{2})\s*\.\s*(\d{2})\s*\.\s*\(/);
+    if(m) return `20${m[1]}-${m[2]}-${m[3]}`;
+  }
+  return "";
+}
+
+function parseForecastTable(lines){
+  const rows = [];
+  const re = /^(\d{2}\/\d{2})\([월화수목금토일]\)\s+(\d+)%\s+(\d+)%\s+(\d+)%\s+(\d+)%\s+(\d+)%\s+(\d+)%\s+([\d.]+\/[\d.]+)\s+([\d.]+\/[\d.]+)$/;
+  for(const line of lines){
+    const m = line.match(re);
+    if(m){
+      rows.push({
+        date_md: m[1], "R1-R2_pct": m[2], "R3+_pct": m[3],
+        "S1-S2_pct": m[4], "S3+_pct": m[5], "G1-G2_pct": m[6], "G3+_pct": m[7],
+        MUF_mid: m[8], MUF_south: m[9]
+      });
+    }
+  }
+  return rows;
+}
+
+function parseWarningsTable(lines){
+  const rows = [];
+  const re = /^(태양흑점폭발\(R\)|태양입자유입\(S\)|지자기교란\(G\)|전리권교란\(I\))\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+([A-Z]\d)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+(\S+)\s+(\S+)$/;
+  for(const line of lines){
+    const m = line.match(re);
+    if(m){
+      rows.push({ kind: m[1], start: m[2], grade: m[3], end: m[4], max_value: m[5], note: m[6] });
+    }
+  }
+  return rows;
+}
+
+function parseSunspotTable(lines){
+  const rows = [];
+  const re = /^(\d{4})\s+([NS]\d{2}[EW]\d{2})\s+(유지|증가|감소)\((\d+)→(\d+)\)\s+(유지|증가|감소)\((\d+)→(\d+)\)$/;
+  for(const line of lines){
+    const m = line.match(re);
+    if(m){
+      rows.push({
+        sunspot_id: m[1], location: m[2],
+        size_trend: m[3], size_prev: m[4], size_curr: m[5],
+        mag_complexity_trend: m[6], mag_complexity_prev: m[7], mag_complexity_curr: m[8],
+        mcintosh: "", earth_size_ratio: "", mag_name: ""
+      });
+    }
+  }
+  return rows;
+}
+
+function parseMcintosh(lines, sunspotIds){
+  const joined = lines.join(" ").replace(/\n/g, " ");
+  const result = {};
+  for(const sid of sunspotIds){
+    const re = new RegExp(
+      `흑점\\s*${sid}\\([^)]*\\)의\\s*모양복잡도는\\s*([A-Za-z]+)\\s*,\\s*` +
+      `크기는\\s*\\d+\\(지구\\s*크기의\\s*약\\s*([\\d.]+)배\\s*수준\\)\\s*,\\s*` +
+      `자기\\s*장?복잡도는\\s*(\\d+)단계\\(([A-Za-z]+)\\)`
+    );
+    const m = joined.match(re);
+    if(m){
+      result[sid] = { mcintosh: m[1], earth_size_ratio: m[2], mag_name: m[4] };
+    }
+  }
+  return result;
+}
+
+function parseCmeTable(lines){
+  const rows = [];
+  const re = /^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+흑점\s*(\d{4})\s+([A-Z][\d.]+)\s+(O|X)(?:\(([^)]*)\))?$/;
+  for(const line of lines){
+    const m = line.match(re);
+    if(m){
+      rows.push({
+        datetime: m[1], sunspot_id: m[2], max_xray_class: m[3],
+        earth_directed: m[4], note: m[5] || ""
+      });
+    }
+  }
+  return rows;
+}
+
+async function extractPdfText(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let full = "";
+  for(let i = 1; i <= pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    // pdf.js는 아이템 단위로 텍스트를 주므로, y좌표 기준으로 줄을 재구성
+    const items = content.items;
+    let lastY = null;
+    let line = "";
+    const lines = [];
+    for(const it of items){
+      const y = it.transform[5];
+      if(lastY !== null && Math.abs(y - lastY) > 2){
+        lines.push(line);
+        line = "";
+      }
+      line += it.str;
+      lastY = y;
+    }
+    if(line) lines.push(line);
+    full += lines.join("\n") + "\n";
+  }
+  return full;
+}
+
+function parseOnePdf(text, filename){
+  const lines = cleanLines(text);
+  const reportDate = parseReportDate(lines);
+  const forecast = parseForecastTable(lines);
+  const warnings = parseWarningsTable(lines);
+  const sunspots = parseSunspotTable(lines);
+  const cme = parseCmeTable(lines);
+
+  const ids = sunspots.map(r => r.sunspot_id);
+  const mcintosh = parseMcintosh(lines, ids);
+  for(const r of sunspots){
+    const extra = mcintosh[r.sunspot_id];
+    if(extra){
+      r.mcintosh = extra.mcintosh;
+      r.earth_size_ratio = extra.earth_size_ratio;
+      r.mag_name = extra.mag_name;
+    }
+  }
+
+  for(const r of [...forecast, ...warnings, ...sunspots, ...cme]){
+    r.source_file = filename;
+    r.report_date = reportDate;
+  }
+
+  return { reportDate, source_file: filename, forecast, warnings, sunspots, cme };
+}
+
+// ---------- CSV 유틸 ----------
+
+function toCsv(rows, extraFieldsFirst){
+  if(rows.length === 0) return "";
+  const others = Object.keys(rows[0]).filter(k => !extraFieldsFirst.includes(k));
+  const fields = [...extraFieldsFirst.filter(f => f in rows[0]), ...others];
+  const esc = v => {
+    const s = (v === undefined || v === null) ? "" : String(v);
+    if(/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const header = fields.join(",");
+  const body = rows.map(r => fields.map(f => esc(r[f])).join(",")).join("\n");
+  return "\uFEFF" + header + "\n" + body + "\n";
+}
+
+function download(filename, content, mime){
+  const blob = new Blob([content], { type: mime || "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------- UI 배선 ----------
+
+const dropEl = document.getElementById("drop");
+const fileInput = document.getElementById("fileInput");
+const statusEl = document.getElementById("status");
+const summaryEl = document.getElementById("summary");
+const actionsEl = document.getElementById("actions");
+const previewWrap = document.getElementById("previewWrap");
+const previewTable = document.getElementById("previewTable");
+
+let ALL = { sunspots: [], forecast: [], warnings: [], cme: [], meta: [] };
+
+function log(msg, cls){
+  statusEl.classList.add("show");
+  const span = document.createElement("div");
+  if(cls) span.className = cls;
+  span.textContent = msg;
+  statusEl.appendChild(span);
+  statusEl.scrollTop = statusEl.scrollHeight;
+}
+
+function updateSummary(){
+  document.getElementById("statFiles").textContent = ALL.meta.length;
+  document.getElementById("statSpots").textContent = ALL.sunspots.length;
+  document.getElementById("statWarn").textContent = ALL.warnings.length;
+  document.getElementById("statCme").textContent = ALL.cme.length;
+  summaryEl.classList.add("show");
+  actionsEl.classList.add("show");
+}
+
+function renderPreview(){
+  if(ALL.sunspots.length === 0) return;
+  const cols = ["source_file","report_date","sunspot_id","location","size_trend","size_prev","size_curr","mcintosh","mag_name"];
+  const rows = ALL.sunspots.slice(0, 15);
+  let html = "<tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr>";
+  for(const r of rows){
+    html += "<tr>" + cols.map(c => `<td>${r[c] ?? ""}</td>`).join("") + "</tr>";
+  }
+  previewTable.innerHTML = html;
+  previewWrap.classList.add("show");
+}
+
+async function handleFiles(fileList){
+  const files = Array.from(fileList).filter(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
+  if(files.length === 0){ log("PDF 파일이 없습니다.", "err"); return; }
+
+  for(const file of files){
+    try{
+      const text = await extractPdfText(file);
+      const data = parseOnePdf(text, file.name);
+      ALL.sunspots.push(...data.sunspots);
+      ALL.forecast.push(...data.forecast);
+      ALL.warnings.push(...data.warnings);
+      ALL.cme.push(...data.cme);
+      ALL.meta.push({
+        source_file: data.source_file,
+        report_date: data.reportDate,
+        n_sunspots: data.sunspots.length,
+        n_warnings: data.warnings.length,
+        n_cme: data.cme.length
+      });
+      log(`[완료] ${file.name} -> 흑점 ${data.sunspots.length}개, 경보 ${data.warnings.length}건, CME ${data.cme.length}건`, "ok");
+    }catch(e){
+      log(`[실패] ${file.name}: ${e.message}`, "err");
+    }
+  }
+
+  updateSummary();
+  renderPreview();
+}
+
+dropEl.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", e => handleFiles(e.target.files));
+
+["dragenter","dragover"].forEach(evt =>
+  dropEl.addEventListener(evt, e => { e.preventDefault(); dropEl.classList.add("drag"); })
+);
+["dragleave","drop"].forEach(evt =>
+  dropEl.addEventListener(evt, e => { e.preventDefault(); dropEl.classList.remove("drag"); })
+);
+dropEl.addEventListener("drop", e => {
+  if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+document.getElementById("dlSunspots").addEventListener("click", () =>
+  download("sunspots.csv", toCsv(ALL.sunspots, ["source_file","report_date"])));
+document.getElementById("dlForecast").addEventListener("click", () =>
+  download("forecast.csv", toCsv(ALL.forecast, ["source_file","report_date"])));
+document.getElementById("dlWarnings").addEventListener("click", () =>
+  download("warnings.csv", toCsv(ALL.warnings, ["source_file","report_date"])));
+document.getElementById("dlCme").addEventListener("click", () =>
+  download("cme.csv", toCsv(ALL.cme, ["source_file","report_date"])));
+document.getElementById("dlMeta").addEventListener("click", () =>
+  download("meta.csv", toCsv(ALL.meta, [])));
+
+document.getElementById("dlZip").addEventListener("click", async () => {
+  const zip = new JSZip();
+  zip.file("sunspots.csv", toCsv(ALL.sunspots, ["source_file","report_date"]));
+  zip.file("forecast.csv", toCsv(ALL.forecast, ["source_file","report_date"]));
+  zip.file("warnings.csv", toCsv(ALL.warnings, ["source_file","report_date"]));
+  zip.file("cme.csv", toCsv(ALL.cme, ["source_file","report_date"]));
+  zip.file("meta.csv", toCsv(ALL.meta, []));
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "kasa_parsed.zip";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
