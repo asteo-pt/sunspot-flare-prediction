@@ -172,6 +172,28 @@
     margin-bottom: 4px;
   }
 
+  .charts{
+    display: none;
+    margin-top: 28px;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .charts.show{ display: flex; }
+  .chartbox{
+    border: 1px solid var(--line);
+    padding: 16px 18px 12px;
+  }
+  .chartbox h2{
+    font-size: 13.5px;
+    margin: 0 0 10px;
+    font-weight: 650;
+  }
+  .chartbox canvas{
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
   footer{
     margin-top: 44px;
     color: var(--muted);
@@ -215,6 +237,25 @@
     <h2>흑점(sunspots) 미리보기</h2>
     <div class="sub">전체 데이터는 CSV로 받아서 확인하세요. 아래는 처음 15행만 표시합니다.</div>
     <table id="previewTable"></table>
+  </div>
+
+  <div class="charts" id="charts">
+    <div class="chartbox">
+      <h2>흑점 자기장복잡도 단계 분포</h2>
+      <canvas id="chartMag" width="760" height="220"></canvas>
+    </div>
+    <div class="chartbox">
+      <h2>흑점 크기 분포</h2>
+      <canvas id="chartSize" width="760" height="220"></canvas>
+    </div>
+    <div class="chartbox">
+      <h2>경보 종류별 발생 건수</h2>
+      <canvas id="chartWarnKind" width="760" height="220"></canvas>
+    </div>
+    <div class="chartbox">
+      <h2>날짜별 경보 발생 추이</h2>
+      <canvas id="chartWarnTime" width="760" height="220"></canvas>
+    </div>
   </div>
 
 </div>
@@ -437,10 +478,189 @@ function renderPreview(){
   previewWrap.classList.add("show");
 }
 
+// ---------- 그래프 (외부 라이브러리 없이 canvas 직접 그리기) ----------
+
+function clearCanvas(ctx, w, h){
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+}
+
+function drawBarChart(canvas, labels, values, opts){
+  opts = opts || {};
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  clearCanvas(ctx, w, h);
+  if(labels.length === 0){
+    ctx.fillStyle = "#999";
+    ctx.font = "12px monospace";
+    ctx.fillText("데이터 없음", 12, 20);
+    return;
+  }
+
+  const padL = 34, padB = 26, padT = 10, padR = 10;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const maxV = Math.max(1, ...values);
+
+  // y축 그리드 + 라벨
+  ctx.strokeStyle = "#e5e5e5";
+  ctx.fillStyle = "#666";
+  ctx.font = "10px monospace";
+  ctx.textAlign = "right";
+  const ticks = 4;
+  for(let i = 0; i <= ticks; i++){
+    const v = Math.round((maxV / ticks) * i);
+    const y = padT + plotH - (v / maxV) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+    ctx.fillText(String(v), padL - 6, y + 3);
+  }
+
+  // 막대
+  const gap = 8;
+  const barW = (plotW - gap * (labels.length - 1)) / labels.length;
+  ctx.fillStyle = "#111";
+  ctx.textAlign = "center";
+  labels.forEach((label, i) => {
+    const v = values[i];
+    const bh = (v / maxV) * plotH;
+    const x = padL + i * (barW + gap);
+    const y = padT + plotH - bh;
+    ctx.fillRect(x, y, barW, bh);
+    ctx.fillStyle = "#666";
+    ctx.font = "10px monospace";
+    ctx.fillText(String(label), x + barW / 2, h - padB + 14);
+    ctx.fillStyle = "#111";
+  });
+
+  // x축 라인
+  ctx.strokeStyle = "#111";
+  ctx.beginPath();
+  ctx.moveTo(padL, padT + plotH);
+  ctx.lineTo(w - padR, padT + plotH);
+  ctx.stroke();
+}
+
+function drawLineChart(canvas, labels, values){
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  clearCanvas(ctx, w, h);
+  if(labels.length === 0){
+    ctx.fillStyle = "#999";
+    ctx.font = "12px monospace";
+    ctx.fillText("데이터 없음", 12, 20);
+    return;
+  }
+
+  const padL = 34, padB = 34, padT = 10, padR = 10;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const maxV = Math.max(1, ...values);
+
+  ctx.strokeStyle = "#e5e5e5";
+  ctx.fillStyle = "#666";
+  ctx.font = "10px monospace";
+  ctx.textAlign = "right";
+  const ticks = 4;
+  for(let i = 0; i <= ticks; i++){
+    const v = Math.round((maxV / ticks) * i);
+    const y = padT + plotH - (v / maxV) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+    ctx.fillText(String(v), padL - 6, y + 3);
+  }
+
+  const stepX = labels.length > 1 ? plotW / (labels.length - 1) : 0;
+  ctx.strokeStyle = "#111";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  labels.forEach((label, i) => {
+    const x = padL + i * stepX;
+    const y = padT + plotH - (values[i] / maxV) * plotH;
+    if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  // x축 라벨: 너무 많으면 일부만 표시
+  ctx.fillStyle = "#666";
+  ctx.textAlign = "center";
+  const labelEvery = Math.max(1, Math.ceil(labels.length / 8));
+  labels.forEach((label, i) => {
+    if(i % labelEvery !== 0 && i !== labels.length - 1) return;
+    const x = padL + i * stepX;
+    ctx.save();
+    ctx.translate(x, h - padB + 12);
+    ctx.rotate(-Math.PI / 5);
+    ctx.textAlign = "right";
+    ctx.fillText(String(label), 0, 0);
+    ctx.restore();
+  });
+
+  ctx.strokeStyle = "#111";
+  ctx.beginPath();
+  ctx.moveTo(padL, padT + plotH);
+  ctx.lineTo(w - padR, padT + plotH);
+  ctx.stroke();
+}
+
+function countBy(rows, key){
+  const map = {};
+  for(const r of rows){
+    const k = r[key] === undefined || r[key] === null || r[key] === "" ? "(없음)" : String(r[key]);
+    map[k] = (map[k] || 0) + 1;
+  }
+  return map;
+}
+
+function renderCharts(){
+  document.getElementById("charts").classList.add("show");
+
+  // 1) 자기장복잡도 단계 분포 (1~8단계)
+  const magCounts = countBy(ALL.sunspots, "mag_complexity_curr");
+  const magLabels = Object.keys(magCounts).sort((a, b) => Number(a) - Number(b));
+  drawBarChart(document.getElementById("chartMag"), magLabels, magLabels.map(l => magCounts[l]));
+
+  // 2) 흑점 크기 히스토그램 (0-50, 50-100, ... 구간)
+  const binSize = 50;
+  const sizeBins = {};
+  for(const r of ALL.sunspots){
+    const size = Number(r.size_curr);
+    if(Number.isNaN(size)) continue;
+    const bin = Math.floor(size / binSize) * binSize;
+    const label = `${bin}-${bin + binSize}`;
+    sizeBins[label] = (sizeBins[label] || 0) + 1;
+  }
+  const sizeLabels = Object.keys(sizeBins).sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
+  drawBarChart(document.getElementById("chartSize"), sizeLabels, sizeLabels.map(l => sizeBins[l]));
+
+  // 3) 경보 종류별 발생 건수
+  const kindCounts = countBy(ALL.warnings, "kind");
+  const kindLabels = Object.keys(kindCounts);
+  drawBarChart(document.getElementById("chartWarnKind"), kindLabels.map(l => l.replace(/\([A-Z]\)$/, "")), kindLabels.map(l => kindCounts[l]));
+
+  // 4) 날짜별 경보 발생 추이
+  const dateCounts = {};
+  for(const r of ALL.warnings){
+    const d = r.report_date || "(알수없음)";
+    dateCounts[d] = (dateCounts[d] || 0) + 1;
+  }
+  const dateLabels = Object.keys(dateCounts).sort();
+  drawLineChart(document.getElementById("chartWarnTime"), dateLabels, dateLabels.map(l => dateCounts[l]));
+}
+
 async function handleFiles(fileList){
   const files = Array.from(fileList).filter(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
   if(files.length === 0){ log("PDF 파일이 없습니다.", "err"); return; }
 
+  log(`총 ${files.length}개 파일 처리 시작...`);
+
+  let done = 0;
   for(const file of files){
     try{
       const text = await extractPdfText(file);
@@ -460,10 +680,15 @@ async function handleFiles(fileList){
     }catch(e){
       log(`[실패] ${file.name}: ${e.message}`, "err");
     }
+    done++;
+    // 대량 처리 시 브라우저가 멈추지 않도록 주기적으로 렌더 틈을 준다
+    if(done % 15 === 0) await new Promise(r => setTimeout(r, 0));
   }
 
   updateSummary();
   renderPreview();
+  renderCharts();
+  log(`전체 완료: ${done}/${files.length}개 처리됨`, "ok");
 }
 
 dropEl.addEventListener("click", () => fileInput.click());
